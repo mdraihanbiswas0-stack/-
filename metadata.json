@@ -1,0 +1,6 @@
+{
+  "name": "Jonaki Keyboard",
+  "description": "Smart Bengali and English Keyboard featuring BDS 1520 Jatiya layout, interactive Magic Wand live translation between Bengali and English, themes, and typing tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

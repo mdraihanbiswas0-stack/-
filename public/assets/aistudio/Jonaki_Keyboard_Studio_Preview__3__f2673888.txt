@@ -1,0 +1,596 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Wand2, Home, Palette, Type, Settings, ShieldCheck, Check, Globe, 
+  Smartphone, MessageSquare, Send, Sparkles, Copy, Trash2, 
+  Mic, Zap, Clipboard, Sun, Moon, CheckCircle2, LayoutGrid, 
+  Edit3, PenTool, Calculator, ArrowLeft, ArrowRight, Repeat, Maximize2, Minimize2,
+  ChevronUp, ChevronDown, CheckSquare, X, Plus, Image as ImageIcon, Power, Pin
+} from 'lucide-react';
+
+export default function JonakiKeyboardApp() {
+  // --- State Management ---
+  const [activeView, setActiveView] = useState('keyboard'); // 'keyboard' | 'themes'
+  const [selectedKbTheme, setSelectedKbTheme] = useState('gboard-dark');
+  const [customBgImage, setCustomBgImage] = useState(null);
+  const [activeKbLayout, setActiveKbLayout] = useState('jatiya'); // 'jatiya' | 'english'
+  const [isShift, setIsShift] = useState(false);
+  const [oneHandedMode, setOneHandedMode] = useState('full');
+  const [showNumberRow, setShowNumberRow] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Chat & Editor State
+  const [chatMessages, setChatMessages] = useState([
+    { id: 1, sender: 'them', text: 'আসসালামু আলাইকুম! জোনাকি কীবোর্ড কেমন কাজ করছে?', time: '১০:৩০ AM' },
+    { id: 2, sender: 'me', text: 'ওয়ালাইকুম আসসালাম! এটি দারুণ কাজ করছে।', time: '১০:৩১ AM' }
+  ]);
+  const [editorText, setEditorText] = useState('জোনাকি কীবোর্ড দিয়ে স্বাচ্ছন্দ্যে টাইপ করুন');
+  const [cursorPos, setCursorPos] = useState(38);
+  const [isListening, setIsListening] = useState(false);
+  const [activeSubPanel, setActiveSubPanel] = useState(null); // 'emoji' | 'clipboard' | 'numpad' | 'texteditor' | 'textrepeater' | 'shortcuts'
+
+  // Shortcuts Management State
+  const [shortcutsList, setShortcutsList] = useState([
+    { shortcut: 'slm', fullText: 'আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ' },
+    { shortcut: 'tq', fullText: 'ধন্যবাদ আপনাকে!' },
+    { shortcut: 'al', fullText: 'আলহামদুলিল্লাহ, ভালো আছি।' }
+  ]);
+  const [isAddingShortcut, setIsAddingShortcut] = useState(false);
+  const [newShortcutKey, setNewShortcutKey] = useState('');
+  const [newShortcutFull, setNewShortcutFull] = useState('');
+
+  // Repeater State
+  const [repeatText, setRepeatText] = useState('');
+  const [repeatCount, setRepeatCount] = useState(5);
+
+  const fileInputRef = useRef(null);
+
+  // Audio Feedback Simulation
+  const playClickSound = () => {
+    if (!soundEnabled) return;
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(360, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.03);
+    } catch (e) {}
+  };
+
+  const triggerVibration = () => {
+    if (vibrationEnabled && navigator.vibrate) {
+      try { navigator.vibrate(12); } catch (e) {}
+    }
+  };
+
+  const handleInsertText = (str) => {
+    playClickSound();
+    triggerVibration();
+    const before = editorText.substring(0, cursorPos);
+    const after = editorText.substring(cursorPos);
+    setEditorText(before + str + after);
+    setCursorPos(cursorPos + str.length);
+  };
+
+  const handleBackspace = () => {
+    playClickSound();
+    triggerVibration();
+    if (cursorPos > 0) {
+      const before = editorText.substring(0, cursorPos - 1);
+      const after = editorText.substring(cursorPos);
+      setEditorText(before + after);
+      setCursorPos(cursorPos - 1);
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!editorText.trim()) return;
+    playClickSound();
+    triggerVibration();
+    setChatMessages([
+      ...chatMessages,
+      {
+        id: Date.now(),
+        sender: 'me',
+        text: editorText.trim(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+    setEditorText('');
+    setCursorPos(0);
+  };
+
+  // Add new shortcut handler
+  const handleSaveNewShortcut = () => {
+    if (!newShortcutKey.trim() || !newShortcutFull.trim()) return;
+    setShortcutsList([...shortcutsList, { shortcut: newShortcutKey.trim(), fullText: newShortcutFull.trim() }]);
+    setNewShortcutKey('');
+    setNewShortcutFull('');
+    setIsAddingShortcut(false);
+  };
+
+  // Voice Typing Handler (Web Speech API)
+  const handleStartVoiceTyping = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("দুঃখিত, আপনার ব্রাউজারে ভয়েস টাইপিং সমর্থিত নয়।");
+      return;
+    }
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = activeKbLayout === 'jatiya' ? 'bn-BD' : 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      triggerVibration();
+    };
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (transcript.trim()) {
+        handleInsertText(transcript.trim());
+      }
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+  };
+
+  // Gallery Photo Upload Handler
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const imageUrl = URL.createObjectURL(file);
+      setCustomBgImage(imageUrl);
+      setSelectedKbTheme('custom-photo');
+    }
+  };
+
+  // BDS 1520 Jatiya Layout
+  const bds1520JatiyoLayout = [
+    [
+      { normal: 'ঢ', shift: 'ঢ়' }, { normal: 'ড়', shift: 'ঢ়' }, { normal: 'ী', shift: 'ঐ' },
+      { normal: 'ূ', shift: 'ঊ' }, { normal: 'ূ', shift: '্ত' }, { normal: '্য', shift: '্' },
+      { normal: 'ু', shift: 'উ' }, { normal: 'ি', shift: 'ই' }, { normal: 'ো', shift: 'ও' },
+      { normal: 'ৌ', shift: 'ঔ' }
+    ],
+    [
+      { normal: 'ও', shift: 'অ' }, { normal: 'আ', shift: 'আ' }, { normal: 'ই', shift: 'ই' },
+      { normal: 'া', shift: 'অ' }, { normal: 'ক', shift: 'খ' }, { normal: 'ব', shift: 'ভ' },
+      { normal: 'হ', shift: 'ঙ' }, { normal: 'গ', shift: 'ঘ' }, { normal: 'দ', shift: 'ধ' },
+      { normal: 'জ', shift: 'ঝ' }
+    ],
+    [
+      { keyType: 'shift', normal: 'Shift' }, { normal: 'ং', shift: 'ঁ' }, { normal: 'ো', shift: 'ৌ' },
+      { normal: 'চ', shift: 'ছ' }, { normal: 'র', shift: 'ড়' }, { normal: 'ন', shift: 'ণ' },
+      { normal: 'ম', shift: 'শ' }, { normal: 'ল', shift: 'ষ' }, { normal: 'স', shift: 'স' },
+      { keyType: 'backspace', normal: '⌫' }
+    ],
+    [
+      { keyType: 'switch', normal: '?123' }, { keyType: 'globe', normal: '🌐' },
+      { keyType: 'space', normal: 'space' }, { normal: '।', shift: '।' },
+      { keyType: 'enter', normal: '↵' }
+    ]
+  ];
+
+  const englishRows = [
+    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm']
+  ];
+
+  const numbersBng = ['১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯', '০'];
+
+  return (
+    <div className="min-h-screen bg-[#070a12] text-slate-100 font-sans pb-28 select-none antialiased">
+      
+      {/* HEADER BAR */}
+      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#070a12]/90 border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-xl">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-400 via-orange-500 to-rose-600 flex items-center justify-center text-white font-black text-xl shadow-lg">
+            জ
+          </div>
+          <div>
+            <h1 className="font-extrabold text-base bg-gradient-to-r from-amber-400 via-orange-300 to-yellow-400 bg-clip-text text-transparent flex items-center gap-2">
+              জোনাকি কীবোর্ড Studio
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 border border-amber-700 text-amber-300 font-mono">প্রো</span>
+            </h1>
+            <p className="text-[11px] text-slate-400">শর্টকাট ম্যানেজার ও স্থায়ী মাইক</p>
+          </div>
+        </div>
+
+        <button 
+          onClick={() => setActiveView('themes')}
+          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold text-amber-400 border border-slate-700 flex items-center gap-1.5"
+        >
+          <Palette className="w-3.5 h-3.5" /> থিম স্টোর
+        </button>
+      </header>
+
+      {/* MAIN CONTAINER */}
+      <main className="max-w-4xl mx-auto px-4 mt-6 flex flex-col items-center">
+
+        {/* THEME STORE VIEW */}
+        {activeView === 'themes' ? (
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h2 className="font-bold text-base text-slate-100 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-amber-400" /> থিম স্টোর ও কাস্টমাইজেশন
+              </h2>
+              <button onClick={() => setActiveView('keyboard')} className="p-1.5 bg-slate-800 rounded-full text-slate-300 hover:bg-slate-700">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-slate-200">গ্যালারি ফটো আপলোড</h4>
+                <p className="text-[10px] text-slate-400">আপনার ছবি কীবোর্ড ব্যাকগ্রাউন্ডে সেট করুন</p>
+              </div>
+              <label className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow-lg">
+                ছবি বাছুন
+                <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'gboard-dark', name: 'জিবোর্ড ডার্ক', bg: '#202124' },
+                { id: 'jonaki-gold', name: 'জোনাকি গোল্ড', bg: '#451a03' },
+                { id: 'cyber-cyan', name: 'সাইবার সাইয়ান', bg: '#082f49' },
+                { id: 'amoled-black', name: 'অ্যামোলেড ব্ল্যাক', bg: '#000000' }
+              ].map(thm => (
+                <div 
+                  key={thm.id}
+                  onClick={() => { setSelectedKbTheme(thm.id); setActiveView('keyboard'); }}
+                  className={`p-3 rounded-2xl border cursor-pointer flex flex-col items-center gap-2 transition ${selectedKbTheme === thm.id ? 'border-amber-500 bg-amber-950/20' : 'border-slate-800 bg-slate-950'}`}
+                >
+                  <div className="w-full h-12 rounded-xl flex items-center justify-center font-bold text-xs" style={{ backgroundColor: thm.bg }}>
+                    অ A
+                  </div>
+                  <span className="text-xs font-medium text-slate-300">{thm.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+
+          /* ANDROID DEVICE & KEYBOARD CONTAINER */
+          <div 
+            className={`w-full max-w-[420px] rounded-[40px] p-3 border-4 border-slate-800 bg-[#090d16] shadow-2xl flex flex-col justify-between relative overflow-hidden transition-all ${
+              oneHandedMode === 'left' ? 'scale-95 -translate-x-4' : oneHandedMode === 'right' ? 'scale-95 translate-x-4' : ''
+            }`}
+            style={{ 
+              minHeight: '680px',
+              backgroundImage: customBgImage && selectedKbTheme === 'custom-photo' ? `url(${customBgImage})` : 'none',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center'
+            }}
+          >
+            {customBgImage && selectedKbTheme === 'custom-photo' && (
+              <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm pointer-events-none"></div>
+            )}
+
+            {/* Top Notch */}
+            <div className="w-28 h-4 bg-slate-800 rounded-full mx-auto mb-2 flex items-center justify-center shrink-0 z-10">
+              <div className="w-10 h-1 bg-slate-900 rounded-full"></div>
+            </div>
+
+            {/* Chat Preview Screen */}
+            <div className="flex-1 px-1 flex flex-col mb-2 z-10">
+              <div className="flex justify-between items-center text-[11px] text-slate-300 mb-1.5 px-1 font-semibold">
+                <span className="flex items-center gap-1 text-amber-400">
+                  <MessageSquare className="w-3.5 h-3.5" /> চ্যাট প্রিভিউ
+                </span>
+              </div>
+
+              <div className="flex-1 bg-slate-950/80 rounded-2xl border border-slate-800 p-3 flex flex-col gap-2 overflow-y-auto max-h-[190px]">
+                {chatMessages.map(msg => (
+                  <div key={msg.id} className={`flex flex-col max-w-[85%] ${msg.sender === 'me' ? 'self-end items-end' : 'self-start items-start'}`}>
+                    <div className={`p-2.5 rounded-2xl text-xs ${msg.sender === 'me' ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-100'}`}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Input Box */}
+              <div className="mt-2 bg-slate-950 rounded-2xl border border-slate-800 p-2 flex flex-col justify-between">
+                <textarea
+                  value={editorText}
+                  onChange={(e) => { setEditorText(e.target.value); setCursorPos(e.target.selectionStart); }}
+                  rows={2}
+                  placeholder="এখানে লিখুন..."
+                  className="w-full bg-transparent border-none outline-none resize-none text-xs text-slate-100 font-sans"
+                />
+                <div className="flex justify-between items-center border-t border-slate-800 pt-1">
+                  <button onClick={() => setActiveView('themes')} className="text-[10px] text-amber-400 flex items-center gap-1 font-semibold">
+                    <Palette className="w-3 h-3" /> থিম পরিবর্তন
+                  </button>
+                  <button onClick={handleSendMessage} className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1">
+                    পাঠান <Send className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* --- KEYBOARD PANEL --- */}
+            <div className="rounded-2xl p-2 bg-slate-900/95 border border-slate-800 shadow-2xl z-10 backdrop-blur-md">
+              
+              {/* TOOLBAR: FIXED MIC ON RIGHT, SWIPEABLE TOOLS ON LEFT */}
+              <div className="h-10 bg-slate-950 rounded-xl px-2 mb-1.5 flex items-center justify-between border border-slate-800">
+                <div className="flex items-center gap-2 overflow-x-auto scrollbar-none flex-1 pr-2">
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'emoji' ? null : 'emoji')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-base" title="ইমোজি">😀</button>
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'clipboard' ? null : 'clipboard')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-blue-400" title="ক্লিপবোর্ড"><Clipboard className="w-4 h-4" /></button>
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'numpad' ? null : 'numpad')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-emerald-400" title="নম্বর প্যাড"><Calculator className="w-4 h-4" /></button>
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'texteditor' ? null : 'texteditor')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-pink-400" title="টেক্সট এডিটর (জিবোর্ড স্টাইল)"><Edit3 className="w-4 h-4" /></button>
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'shortcuts' ? null : 'shortcuts')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-amber-400" title="শর্টকাট ম্যানেজার"><Zap className="w-4 h-4" /></button>
+                  <button onClick={() => setActiveSubPanel(activeSubPanel === 'textrepeater' ? null : 'textrepeater')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-teal-400" title="টেক্সট রিপিটার"><Repeat className="w-4 h-4" /></button>
+                  <button onClick={() => setActiveView('themes')} className="p-1.5 hover:bg-slate-800 rounded shrink-0 text-rose-400" title="থিম"><Palette className="w-4 h-4" /></button>
+                </div>
+
+                {/* Pinned Voice Typing Button at Top-Right Corner */}
+                <button 
+                  onClick={handleStartVoiceTyping} 
+                  className={`p-2 rounded-xl transition flex items-center justify-center shrink-0 border ${
+                    isListening 
+                      ? 'bg-rose-600/30 text-rose-500 border-rose-500 animate-pulse' 
+                      : 'bg-slate-900 text-blue-400 border-slate-800 hover:bg-slate-800'
+                  }`} 
+                  title="ভয়েস টাইপিং"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* SHORTCUTS MANAGER OVERLAY */}
+              {activeSubPanel === 'shortcuts' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 mb-1.5 text-xs space-y-2 animate-fadeIn">
+                  <div className="flex justify-between items-center pb-1 border-b border-slate-800 text-amber-400 font-bold">
+                    <span>শর্টকাট ম্যানেজার</span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setIsAddingShortcut(!isAddingShortcut)} className="p-1 bg-amber-500 text-slate-950 rounded-lg flex items-center gap-1 font-bold text-[10px]" title="নতুন শর্টকাট যোগ করুন">
+                        <Plus className="w-3.5 h-3.5" /> নতুন
+                      </button>
+                      <button onClick={() => { setActiveSubPanel(null); setIsAddingShortcut(false); }} className="text-slate-400"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                  </div>
+
+                  {isAddingShortcut ? (
+                    <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-2">
+                      <div className="text-[11px] font-bold text-slate-200">নতুন শর্টকাট তৈরি করুন:</div>
+                      <input 
+                        type="text" 
+                        placeholder="শর্টকাট (যেমন: slm)" 
+                        value={newShortcutKey} 
+                        onChange={(e) => setNewShortcutKey(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none" 
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="সম্পূর্ণ লেখা (যেমন: আসসালামু আলাইকুম)" 
+                        value={newShortcutFull} 
+                        onChange={(e) => setNewShortcutFull(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none" 
+                      />
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={handleSaveNewShortcut} className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-1 rounded-lg text-xs">সংরক্ষণ করুন</button>
+                        <button onClick={() => setIsAddingShortcut(false)} className="px-3 bg-slate-800 text-slate-300 py-1 rounded-lg text-xs">বাতিল</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                      {shortcutsList.map((item, idx) => (
+                        <div 
+                          key={idx} 
+                          onClick={() => { handleInsertText(item.fullText); setActiveSubPanel(null); }}
+                          className="p-2 bg-slate-900 hover:bg-slate-800 rounded-xl cursor-pointer flex justify-between items-center border border-slate-800/80 transition"
+                        >
+                          <span className="font-mono text-amber-400 font-bold">{item.shortcut}</span>
+                          <span className="text-slate-300 truncate max-w-[180px] text-right">{item.fullText}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* GBOARD STYLE TEXT EDITOR OVERLAY */}
+              {activeSubPanel === 'texteditor' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 mb-1.5 text-xs animate-fadeIn">
+                  <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-800 text-[11px] text-pink-400 font-bold">
+                    <span>জি-কীবোর্ড টেক্সট এডিটর</span>
+                    <button onClick={() => setActiveSubPanel(null)} className="text-slate-400 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  
+                  <div className="grid grid-cols-4 gap-2 text-center font-bold">
+                    <div className="col-span-2 grid grid-cols-3 gap-1 bg-slate-900 p-2 rounded-xl border border-slate-800 items-center justify-items-center">
+                      <div></div>
+                      <button onClick={() => setCursorPos(p => Math.max(0, p - 5))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg"><ChevronUp className="w-4 h-4 text-slate-200" /></button>
+                      <div></div>
+                      <button onClick={() => setCursorPos(p => Math.max(0, p - 1))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg"><ArrowLeft className="w-4 h-4 text-slate-200" /></button>
+                      <span className="text-[10px] text-amber-400 font-bold">বাছাই</span>
+                      <button onClick={() => setCursorPos(p => Math.min(editorText.length, p + 1))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg"><ArrowRight className="w-4 h-4 text-slate-200" /></button>
+                      <div></div>
+                      <button onClick={() => setCursorPos(p => Math.min(editorText.length, p + 5))} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg"><ChevronDown className="w-4 h-4 text-slate-200" /></button>
+                      <div></div>
+                    </div>
+
+                    <div className="col-span-2 flex flex-col gap-1.5 justify-between">
+                      <button className="py-2 bg-slate-900 hover:bg-slate-800 rounded-xl border border-slate-800 text-slate-200 text-xs">সব নির্বাচন</button>
+                      <button onClick={() => navigator.clipboard.writeText(editorText)} className="py-2 bg-slate-900 hover:bg-slate-800 rounded-xl border border-slate-800 text-slate-200 text-xs flex items-center justify-center gap-1"><Copy className="w-3.5 h-3.5" /> কপি</button>
+                      <button className="py-2 bg-slate-900 hover:bg-slate-800 rounded-xl border border-slate-800 text-slate-200 text-xs">পেস্ট</button>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-800">
+                    <button className="p-2 bg-slate-900 rounded-lg text-slate-400">⏮</button>
+                    <button className="p-2 bg-slate-900 rounded-lg text-slate-400">⏭</button>
+                    <button onClick={() => setActiveSubPanel(null)} className="p-2 bg-rose-950 text-rose-400 rounded-lg px-4 flex items-center gap-1 font-bold"><X className="w-3.5 h-3.5" /> বন্ধ</button>
+                  </div>
+                </div>
+              )}
+
+              {/* EMOJI OVERLAY */}
+              {activeSubPanel === 'emoji' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 mb-1.5 text-base animate-fadeIn">
+                  <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-800 text-xs text-amber-400 font-bold">
+                    <span>ইমোজি প্যানেল</span>
+                    <button onClick={() => setActiveSubPanel(null)} className="text-slate-400"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div className="grid grid-cols-8 gap-2 text-center">
+                    {['😀','😂','😍','😊','🙏','👍','🔥','✨','❤️','😎','😭','🤔','🌺','🇧🇩','🎉','💯'].map((e, idx) => (
+                      <button key={idx} onClick={() => handleInsertText(e)} className="p-2 hover:bg-slate-800 rounded-xl">{e}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* CLIPBOARD OVERLAY */}
+              {activeSubPanel === 'clipboard' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 mb-1.5 text-xs space-y-2 animate-fadeIn">
+                  <div className="flex justify-between items-center pb-1 border-b border-slate-800 text-blue-400 font-bold">
+                    <span>ক্লিপবোর্ড হিস্ট্রি</span>
+                    <button onClick={() => setActiveSubPanel(null)} className="text-slate-400"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div onClick={() => handleInsertText('📌 জোনাকি কীবোর্ড প্রো')} className="p-2 bg-slate-900 hover:bg-slate-800 rounded-xl cursor-pointer text-slate-200">
+                    📌 জোনাকি কীবোর্ড প্রো
+                  </div>
+                </div>
+              )}
+
+              {/* NUMPAD OVERLAY (1:1 Exact Match) */}
+              {activeSubPanel === 'numpad' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-2 mb-1.5 animate-fadeIn">
+                  <div className="grid grid-cols-5 gap-1.5">
+                    <div className="flex flex-col gap-1">
+                      {['+', '-', '*', '/'].map((op, i) => (
+                        <button key={i} onClick={() => handleInsertText(op)} className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 rounded-xl font-bold text-slate-300 text-sm flex items-center justify-center">{op}</button>
+                      ))}
+                      <button onClick={() => setActiveSubPanel(null)} className="py-3 bg-pink-600 hover:bg-pink-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center">ABC</button>
+                    </div>
+
+                    <div className="col-span-3 grid grid-cols-3 gap-1">
+                      {(activeKbLayout === 'jatiya' ? ['১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'] : ['1', '2', '3', '4', '5', '6', '7', '8', '9']).map((n, i) => (
+                        <button key={i} onClick={() => handleInsertText(n)} className="py-3 bg-slate-900 hover:bg-slate-800 rounded-xl font-bold text-slate-100 text-base flex items-center justify-center">{n}</button>
+                      ))}
+                      <button onClick={() => handleInsertText('.')} className="py-3 bg-slate-900 hover:bg-slate-800 rounded-xl font-bold text-slate-100 flex items-center justify-center">.</button>
+                      <button onClick={() => handleInsertText('০')} className="py-3 bg-slate-900 hover:bg-slate-800 rounded-xl font-bold text-slate-100 flex items-center justify-center">০</button>
+                      <button onClick={() => handleInsertText('_')} className="py-3 bg-slate-900 hover:bg-slate-800 rounded-xl font-bold text-slate-100 flex items-center justify-center">_</button>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <button onClick={() => handleInsertText('%')} className="py-3 bg-pink-600/80 hover:bg-pink-600 text-white font-bold rounded-xl text-xs flex items-center justify-center">%</button>
+                      <button onClick={() => setActiveKbLayout(activeKbLayout === 'jatiya' ? 'english' : 'jatiya')} className="py-3 bg-pink-600 hover:bg-pink-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center">
+                        {activeKbLayout === 'jatiya' ? '১২৩' : '123'}
+                      </button>
+                      <button onClick={handleBackspace} className="py-3 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl flex items-center justify-center"><Trash2 className="w-4 h-4" /></button>
+                      <button onClick={handleSendMessage} className="py-3 bg-pink-700 hover:bg-pink-800 text-white font-bold rounded-xl flex items-center justify-center">➔</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TEXT REPEATER OVERLAY */}
+              {activeSubPanel === 'textrepeater' && (
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 mb-1.5 text-xs space-y-2 animate-fadeIn">
+                  <div className="flex justify-between items-center pb-1 border-b border-slate-800 text-teal-400 font-bold">
+                    <span>টেক্সট রিপিটার টুল</span>
+                    <button onClick={() => setActiveSubPanel(null)} className="text-slate-400"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="লেখা লিখুন" value={repeatText} onChange={(e) => setRepeatText(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs flex-1 text-white outline-none" />
+                    <input type="number" value={repeatCount} onChange={(e) => setRepeatCount(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-xs w-14 text-white outline-none text-center" />
+                  </div>
+                  <button onClick={() => { handleInsertText((repeatText + ' ').repeat(Number(repeatCount))); setActiveSubPanel(null); }} className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 rounded-xl text-xs">
+                    রিপিট করে ইনসার্ট করুন
+                  </button>
+                </div>
+              )}
+
+              {showNumberRow && (
+                <div className="grid grid-cols-10 gap-0.5 mb-1">
+                  {numbersBng.map((n, i) => (
+                    <button key={i} onClick={() => handleInsertText(n)} className="py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded">
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* KEYBOARD ROWS */}
+              <div className="space-y-1">
+                {activeKbLayout === 'jatiya' ? (
+                  bds1520JatiyoLayout.map((row, rIdx) => (
+                    <div key={rIdx} className="flex justify-center gap-0.5 w-full">
+                      {row.map((kObj, kIdx) => {
+                        const char = isShift ? (kObj.shift || kObj.normal) : kObj.normal;
+
+                        if (kObj.keyType === 'space') {
+                          return (
+                            <button key={kIdx} onClick={() => handleInsertText(' ')} className="flex-[4] py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded-xl">
+                              জোনাকি কীবোর্ড (BDS 1520)
+                            </button>
+                          );
+                        }
+                        if (kObj.keyType === 'backspace') {
+                          return <button key={kIdx} onClick={handleBackspace} className="flex-[1.5] py-2 bg-slate-800 text-rose-400 flex items-center justify-center rounded-xl">⌫</button>;
+                        }
+                        if (kObj.keyType === 'enter') {
+                          return <button key={kIdx} onClick={handleSendMessage} className="flex-[1.5] py-2 bg-amber-500 text-slate-950 flex items-center justify-center font-extrabold rounded-xl">↵</button>;
+                        }
+                        if (kObj.keyType === 'shift') {
+                          return <button key={kIdx} onClick={() => setIsShift(!isShift)} className={`flex-[1.5] py-2 bg-slate-800 text-slate-200 flex items-center justify-center rounded-xl ${isShift ? 'ring-1 ring-amber-400' : ''}`}>⇧</button>;
+                        }
+                        if (kObj.keyType === 'switch') {
+                          return <button key={kIdx} onClick={() => setActiveKbLayout('english')} className="flex-[1.5] py-2 bg-slate-800 text-amber-400 font-bold text-xs flex items-center justify-center rounded-xl">ENG</button>;
+                        }
+                        if (kObj.keyType === 'globe') {
+                          return <button key={kIdx} onClick={() => {}} className="flex-[1.5] py-2 bg-slate-800 text-slate-300 flex items-center justify-center rounded-xl">🌐</button>;
+                        }
+
+                        return (
+                          <button key={kIdx} onClick={() => handleInsertText(char)} className="flex-1 py-2 bg-slate-800 hover:bg-amber-600 text-slate-100 font-semibold flex items-center justify-center transition rounded text-xs">
+                            {char}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))
+                ) : (
+                  englishRows.map((row, rIdx) => (
+                    <div key={rIdx} className="flex justify-center gap-1">
+                      {row.map((char, cIdx) => (
+                        <button key={cIdx} onClick={() => handleInsertText(isShift ? char.toUpperCase() : char)} className="flex-1 py-2 bg-slate-800 hover:bg-amber-600 text-slate-100 font-semibold flex items-center justify-center transition rounded text-xs">
+                          {isShift ? char.toUpperCase() : char}
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+
+            </div>
+
+            <div className="w-28 h-1 bg-slate-800 rounded-full mx-auto mt-2 shrink-0 z-10"></div>
+          </div>
+        )}
+
+      </main>
+
+    </div>
+  );
+}
